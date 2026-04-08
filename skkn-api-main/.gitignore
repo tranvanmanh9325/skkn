@@ -1,0 +1,33 @@
+# ─── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+
+# ─── Build output ────────────────────────────────────────────────────────────
+dist/
+build/
+
+# ─── Environment & Secrets ───────────────────────────────────────────────────
+# QUAN TRỌNG: Không bao giờ commit file chứa secrets lên Git
+.env
+.env.*
+!.env.example      # chỉ commit file example (không chứa giá trị thật)
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ─── TypeScript ──────────────────────────────────────────────────────────────
+*.tsbuildinfo
+
+# ─── OS & Editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ─── Uploads & OCR temp files ────────────────────────────────────────────────
+uploads/
+tmp/
+*.pdf
+*.tiff
+*.tif

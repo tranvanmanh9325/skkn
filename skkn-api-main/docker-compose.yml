@@ -1,0 +1,123 @@
+# Copy file này thành .env.docker và điền giá trị thật
+# KHÔNG BAO GIỜ commit .env.docker lên Git
+
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Named volumes — dữ liệu được persist ngay cả khi container bị xóa
+# ---------------------------------------------------------------------------
+volumes:
+  mongo_data:
+  redis_data:
+
+# ---------------------------------------------------------------------------
+# Networks — isolate traffic nội bộ, chỉ expose những gì cần ra ngoài
+# ---------------------------------------------------------------------------
+networks:
+  skkn_net:
+    driver: bridge
+
+services:
+  # =========================================================================
+  # MongoDB
+  # =========================================================================
+  mongo:
+    image: mongo:latest
+    container_name: skkn_mongo
+    restart: unless-stopped
+    networks:
+      - skkn_net
+    volumes:
+      - mongo_data:/data/db
+    # Biến môi trường đọc từ .env file ở host (không hardcode credential)
+    env_file:
+      - .env
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    # Healthcheck: mongosh ping vào admin DB để xác nhận server đã accept connections
+    # —  interval: kiểm tra mỗi 10s
+    # —  timeout: nếu lệnh không trả về trong 5s → coi là failed
+    # —  retries: cần 5 lần thành công liên tiếp mới chuyển sang "healthy"
+    # —  start_period: grace period 30s ngay sau khi container khởi động
+    #    (để Mongo kịp load journals trước khi bắt đầu tính retries)
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "--username",
+          "${MONGO_INITDB_ROOT_USERNAME}",
+          "--password",
+          "${MONGO_INITDB_ROOT_PASSWORD}",
+          "--authenticationDatabase",
+          "admin",
+          "--eval",
+          "db.adminCommand('ping').ok",
+          "--eval",
+          "quit(db.adminCommand('ping').ok ? 0 : 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # =========================================================================
+  # Redis
+  # =========================================================================
+  redis:
+    image: redis:alpine
+    container_name: skkn_redis
+    restart: unless-stopped
+    networks:
+      - skkn_net
+    volumes:
+      - redis_data:/data
+    # Bật password protection; giá trị đọc từ .env
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    env_file:
+      - .env
+    # Healthcheck: redis-cli ping với password để xác nhận server đang chấp nhận lệnh
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # =========================================================================
+  # Backend (Node.js / TypeScript API)
+  # =========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Target "development" stage — cài đủ devDependencies, chạy nodemon
+      target: development
+    container_name: skkn_backend
+    restart: unless-stopped
+    networks:
+      - skkn_net
+    ports:
+      - "5001:5001"
+    env_file:
+      - .env
+    volumes:
+      # Bind mount toàn bộ source từ host vào container để hot-reload hoạt động
+      - .:/app
+      # Anonymous volume "che" /app/node_modules — ngăn host overwrite node_modules
+      # đã được cài TRONG container (tránh lỗi platform binary mismatch trên Windows/Mac)
+      - /app/node_modules
+    # Ghi đè CMD của Dockerfile: chạy seed trước, sau đó mới start dev server.
+    # Dùng && để nếu seed lỗi (VD: sai MONGO_URI) thì server không start — fail fast.
+    # sh -c cần thiết vì Docker CMD dạng array không hỗ trợ shell operators (&&).
+    command: sh -c "npm run seed && npm run dev"
+    # depends_on với condition: service_healthy đảm bảo backend chỉ start
+    # SAU KHI cả Mongo và Redis đã pass healthcheck — tránh race condition
+    # "Connection refused" khi DB chưa kịp sẵn sàng nhận kết nối.
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
