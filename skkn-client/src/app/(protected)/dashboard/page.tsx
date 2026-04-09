@@ -87,7 +87,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col min-h-full pb-12">
       {/* Page Header */}
       <div className="mb-8">
         <h1
@@ -132,7 +132,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Recent Dossiers Area ── */}
-      <div className="bg-white border border-[#CBD5E0] rounded-none flex-1 flex flex-col">
+      <div className="bg-white ring-1 ring-[#CBD5E0] rounded-none flex-1 flex flex-col mb-[2px]">
         {/* Table Header Container */}
         <div className="px-6 py-5 border-b border-[#CBD5E0] bg-[#FAFAFA] flex items-center justify-between">
           <h2 className="text-[13.5px] font-bold tracking-[0.02em] text-[#0A1F44] uppercase">
@@ -148,7 +148,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Table Data */}
-        <div className="flex-1 overflow-x-auto min-h-0 pb-6">
+        <div className="flex-1 overflow-x-auto min-h-0 pb-[1px]">
           {isLoading ? (
             <div className="flex-1 flex items-center justify-center p-12 flex-col gap-4">
               <div className="w-7 h-7 border-2 border-[#CBD5E0] border-t-[#0A1F44] animate-spin rounded-full"></div>
