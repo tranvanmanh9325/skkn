@@ -1,6 +1,7 @@
 import { Schema, model, Document, Types, PopulatedDoc, CallbackWithoutResultAndOptionalError } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { IRoleDocument } from './Permission.model';
+import './Permission.model'; // Must import to execute model registration for Mongoose populate
 
 export interface IUnit {
   _id: Types.ObjectId;

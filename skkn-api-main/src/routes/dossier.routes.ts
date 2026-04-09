@@ -26,16 +26,24 @@ router.get(
   authenticate,
   authorize('DOSSIER', 'READ'),
   scopeQuery,
-  DossierController.listDossiers
+  DossierController.getDossiers
 );
 
-// Chi tiết — auditView ghi log ai đã xem hồ sơ nào và lúc mấy giờ
+// Lấy thống kê cho bảng điều khiển (phải đặt trước /:id để không bị nhầm query param)
+router.get(
+  '/stats',
+  authenticate,
+  authorize('DOSSIER', 'READ'),
+  scopeQuery,
+  DossierController.getDashboardStats
+);
+
+// Chi tiết — tự động ghi log audit trong controller (vì lấy theo dossierId string)
 router.get(
   '/:id',
   authenticate,
   authorize('DOSSIER', 'READ'),
   scopeQuery,
-  auditView('DOSSIER'),        // fire-and-forget, không blocking
   DossierController.getDossierById
 );
 
@@ -49,8 +57,18 @@ router.post(
   DossierController.createDossier
 );
 
-// Cập nhật
+// Cập nhật (PATCH)
 router.patch(
+  '/:id',
+  authenticate,
+  authorize('DOSSIER', 'UPDATE'),
+  scopeQuery,
+  withAuditContext,
+  DossierController.updateDossier
+);
+
+// Cập nhật (PUT) - Hỗ trợ cả hai phương thức để tương thích với yêu cầu
+router.put(
   '/:id',
   authenticate,
   authorize('DOSSIER', 'UPDATE'),

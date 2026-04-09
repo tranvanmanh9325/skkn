@@ -1,6 +1,7 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { env } from './config/env';
+import authRouter from './routes/auth.routes';
 import dossierRouter from './routes/dossier.routes';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ export function createApp(): Application {
   });
 
   // ── API Routes ────────────────────────────────────────────────────────────
+  app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/dossiers', dossierRouter);
 
   // ── 404 Handler ───────────────────────────────────────────────────────────

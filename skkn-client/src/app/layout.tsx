@@ -23,7 +23,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+      {/* suppressHydrationWarning: bỏ qua diff do browser extension (Grammarly, v.v.)
+          inject data-* attributes vào <body> trước khi React hydrate */}
+      <body className="min-h-full flex flex-col font-sans" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }

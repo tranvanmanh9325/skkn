@@ -1,5 +1,5 @@
-# Copy file này thành .env.docker và điền giá trị thật
-# KHÔNG BAO GIỜ commit .env.docker lên Git
+# KHÔNG BAO GIỜ commit file .env lên Git
+# Mỗi developer tự tạo .env từ skkn-api-main/.env.example
 
 version: "3.9"
 
@@ -9,6 +9,7 @@ version: "3.9"
 volumes:
   mongo_data:
   redis_data:
+  next_cache:
 
 # ---------------------------------------------------------------------------
 # Networks — isolate traffic nội bộ, chỉ expose những gì cần ra ngoài
@@ -29,18 +30,13 @@ services:
       - skkn_net
     volumes:
       - mongo_data:/data/db
-    # Biến môi trường đọc từ .env file ở host (không hardcode credential)
+    # Biến môi trường đọc từ .env của backend (không hardcode credential)
     env_file:
-      - .env
+      - ./skkn-api-main/.env
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: "090325"
     # Healthcheck: mongosh ping vào admin DB để xác nhận server đã accept connections
-    # —  interval: kiểm tra mỗi 10s
-    # —  timeout: nếu lệnh không trả về trong 5s → coi là failed
-    # —  retries: cần 5 lần thành công liên tiếp mới chuyển sang "healthy"
-    # —  start_period: grace period 30s ngay sau khi container khởi động
-    #    (để Mongo kịp load journals trước khi bắt đầu tính retries)
     healthcheck:
       test:
         [
@@ -48,9 +44,9 @@ services:
           "mongosh",
           "--quiet",
           "--username",
-          "${MONGO_INITDB_ROOT_USERNAME}",
+          "admin",
           "--password",
-          "${MONGO_INITDB_ROOT_PASSWORD}",
+          "090325",
           "--authenticationDatabase",
           "admin",
           "--eval",
@@ -74,13 +70,13 @@ services:
       - skkn_net
     volumes:
       - redis_data:/data
-    # Bật password protection; giá trị đọc từ .env
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    # Bật password protection mong muốn: 090325
+    command: ["redis-server", "--requirepass", "090325", "--appendonly", "yes"]
     env_file:
-      - .env
+      - ./skkn-api-main/.env
     # Healthcheck: redis-cli ping với password để xác nhận server đang chấp nhận lệnh
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "090325", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -91,9 +87,9 @@ services:
   # =========================================================================
   backend:
     build:
-      context: .
+      context: ./skkn-api-main
       dockerfile: Dockerfile
-      # Target "development" stage — cài đủ devDependencies, chạy nodemon
+      # Target "development" stage — cài đủ devDependencies, chạy nodemon/tsx
       target: development
     container_name: skkn_backend
     restart: unless-stopped
@@ -102,10 +98,10 @@ services:
     ports:
       - "5001:5001"
     env_file:
-      - .env
+      - ./skkn-api-main/.env
     volumes:
       # Bind mount toàn bộ source từ host vào container để hot-reload hoạt động
-      - .:/app
+      - ./skkn-api-main:/app
       # Anonymous volume "che" /app/node_modules — ngăn host overwrite node_modules
       # đã được cài TRONG container (tránh lỗi platform binary mismatch trên Windows/Mac)
       - /app/node_modules
@@ -121,3 +117,36 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  # =========================================================================
+  # Frontend (Next.js)
+  # =========================================================================
+  skkn_frontend:
+    build:
+      context: ./skkn-client
+      dockerfile: Dockerfile
+    container_name: skkn_frontend
+    restart: unless-stopped
+    networks:
+      - skkn_net
+    ports:
+      # Host 5002 → Container 3000 (Next.js default)
+      - "5002:3000"
+    environment:
+      # Bắt buộc trên Windows/Mac: kích hoạt polling để Webpack/Watchpack
+      # nhận thấy file changes khi dùng bind mount qua Docker Desktop VM layer.
+      WATCHPACK_POLLING: "true"
+      # NEXT_PUBLIC_* được nhúng vào bundle phía client lúc build.
+      # localhost:5001 resolve đúng từ browser vì port đã được map ra host.
+      # Lưu ý: nếu cần gọi backend từ server-side (RSC/Route Handlers),
+      # dùng biến riêng trỏ đến service name: http://backend:5001
+      NEXT_PUBLIC_API_URL: http://localhost:5001
+    volumes:
+      # Bind mount: mọi thay đổi source từ host → container ngay lập tức (hot-reload)
+      - ./skkn-client:/app
+      # Anonymous volume che /app/node_modules — ngăn host overwrite node_modules
+      # đã cài trong container (tránh binary mismatch giữa Windows host và Linux container)
+      - /app/node_modules
+      # Named volume cho .next build cache — tách riêng để tránh conflict
+      # giữa local build (Windows) và container build (Linux)
+      - next_cache:/app/.next

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { setAuthCookie } from "@/lib/auth-cookies";
 
 // ---------------------------------------------------------------------------
-// Schema — tách ra file riêng (e.g. src/lib/schemas/auth.schema.ts) khi refactor
+// Schema
 // ---------------------------------------------------------------------------
 const loginSchema = z.object({
   account: z
@@ -22,16 +23,33 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
+import { apiClient } from "@/lib/axios";
+import axios from "axios";
+
 // ---------------------------------------------------------------------------
-// Zustand store mock — thay bằng import thực: `import { useAuthStore } from "@/stores/auth.store"`
+// API call thực — gọi Axios wrapper
 // ---------------------------------------------------------------------------
-const useAuthStore = () => ({
-  login: async (account: string): Promise<void> => {
-    // Giả lập API call — xóa khi tích hợp store thực
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    if (account === "fail@test.com") throw new Error("Sai tài khoản hoặc mật khẩu.");
-  },
-});
+async function loginRequest(account: string, password: string): Promise<string> {
+  try {
+    // Chú ý: Endpoint không chứa "/api/" nữa vì baseURL đã bao gồm "/api/v1"
+    const res = await apiClient.post("/auth/login", {
+      email: account,
+      password: password,
+    });
+
+    const responseData = res.data;
+    if (!responseData?.data?.accessToken) throw new Error("Phản hồi từ máy chủ không hợp lệ. Đăng nhập thành công nhưng không có token.");
+    return responseData.data.accessToken as string;
+  } catch (error: unknown) {
+    let errorMsg = "Sai tài khoản hoặc mật khẩu.";
+    if (axios.isAxiosError(error)) {
+      errorMsg = error.response?.data?.message ?? errorMsg;
+    } else if (error instanceof Error) {
+      errorMsg = error.message;
+    }
+    throw new Error(errorMsg);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Bespoke SVG Icons — Không dùng bất kỳ icon library nào.
@@ -223,7 +241,7 @@ const THAMonogram = () => (
 // ---------------------------------------------------------------------------
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuthStore();
+  const searchParams = useSearchParams();
 
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -236,7 +254,7 @@ export default function LoginPage() {
     formState: { errors },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    mode: "onTouched", // Validate khi blur, không phải onChange — UX tốt hơn cho form pháp lý
+    mode: "onTouched",
   });
 
   const onSubmit = async (data: LoginFormValues) => {
@@ -244,9 +262,14 @@ export default function LoginPage() {
     setServerError(null);
 
     try {
-      // Khi tích hợp store thực: await login(data.account, data.password)
-      await login(data.account);
-      router.push("/dashboard");
+      const accessToken = await loginRequest(data.account, data.password);
+
+      // Ghi token vào cookie → Middleware sẽ đọc cookie này để verify
+      setAuthCookie(accessToken);
+
+      // Redirect về intended URL nếu user bị chặn giữa chừng, fallback về /dashboard
+      const redirectTo = searchParams.get("redirect") ?? "/dashboard";
+      router.replace(redirectTo);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Đã xảy ra lỗi không xác định. Vui lòng thử lại.";

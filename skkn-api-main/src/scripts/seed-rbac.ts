@@ -10,6 +10,8 @@
 import 'dotenv/config'; // phải là import đầu tiên — load .env trước khi env.ts validate
 import mongoose from 'mongoose';
 import { Permission, Role, RESOURCES, ACTIONS } from '../models/Permission.model';
+import { User } from '../models/User.model';
+import { Dossier } from '../models/Dossier.model';
 import { env } from '../config/env';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -148,6 +150,88 @@ async function seed() {
   }
 
   console.log('\n✅ RBAC seed completed successfully.');
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Test Account Provisioning
+  //
+  // Tạo admin test account để dev team có thể đăng nhập ngay lập tức.
+  // Script này hoàn toàn idempotent: tìm theo email trước, chỉ tạo mới nếu chưa có.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const ADMIN_EMAIL = 'admin@tha.gov.vn';
+  const ADMIN_PASSWORD = 'AdminPassword123!';
+
+  // Lấy ADMIN role vừa được upsert ở trên
+  const adminRole = await Role.findOne({ name: 'ADMIN' });
+  if (!adminRole) throw new Error('ADMIN role not found — RBAC seed may have failed.');
+
+  const existingAdmin = await User.findOne({ email: ADMIN_EMAIL });
+
+  if (existingAdmin) {
+    console.log(`\n⚠️  Admin account already exists: ${ADMIN_EMAIL} — skipping creation.`);
+  } else {
+    // Dùng một ObjectId cố định để đại diện cho đơn vị hệ thống (system unit).
+    // Trong production, đây phải là _id thật từ collection Unit.
+    const SYSTEM_UNIT_ID = new mongoose.Types.ObjectId('000000000000000000000001');
+
+    // Gán raw password vào passwordHash — pre-save hook sẽ bcrypt hash nó trước khi lưu
+    const adminUser = new User({
+      employeeId: 'ADMIN-001',
+      name: 'System Administrator',
+      email: ADMIN_EMAIL,
+      passwordHash: ADMIN_PASSWORD,
+      roles: [adminRole._id],
+      unit: SYSTEM_UNIT_ID,
+      isActive: true,
+    });
+
+    await adminUser.save(); // pre-save hook tự động hash password tại đây
+    console.log(`\n✅ Admin test account created:`);
+    console.log(`   Email    : ${ADMIN_EMAIL}`);
+    console.log(`   Password : ${ADMIN_PASSWORD}`);
+    console.log(`   Role     : ADMIN (dataScope: ALL)`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Seed Dossiers
+  // ─────────────────────────────────────────────────────────────────────────
+  const admin = await User.findOne({ email: ADMIN_EMAIL });
+  if (admin) {
+    const dossierCount = await Dossier.countDocuments();
+    if (dossierCount === 0) {
+      console.log('\n⏳ Seeding 10 dossiers...');
+      const dossiers = [];
+      const statuses = ['PENDING', 'EXECUTING', 'COMPLETED', 'SUSPENDED'];
+      const partiesList = [
+        'Nguyễn Văn A - Trần Thị B',
+        'Lê Văn C - Phạm Thị D',
+        'Công ty TNHH Hoàng Long - Phạm Văn E',
+        'Trần Văn F - Ngân hàng Vietcombank',
+        'Phạm Văn G - Đinh Thị H',
+        'Nguyễn Trường Giang - Trần Lệ Thủy',
+        'Lê Hữu Đạt - Trương Đình Nghệ',
+        'Công ty CP XYZ - Lê Văn Tám',
+      ];
+
+      for (let i = 1; i <= 10; i++) {
+        dossiers.push({
+          dossierId: `THA-2026-${String(i).padStart(4, '0')}`,
+          acceptanceDate: new Date(Date.now() - Math.floor(Math.random() * 10000000000)), // ngày ngẫu nhiên trong quá khứ
+          parties: partiesList[(i - 1) % partiesList.length],
+          status: statuses[(i - 1) % statuses.length],
+          createdBy: admin._id,
+          assignedOfficer: admin._id,
+          unit: admin.unit, // system unit
+        });
+      }
+
+      await Dossier.insertMany(dossiers);
+      console.log('✅ 10 Dossiers seeded successfully.');
+    } else {
+      console.log(`\n⚠️  Dossiers already exist (${dossierCount}) — skipping seed.`);
+    }
+  }
+
   await mongoose.disconnect();
 }
 

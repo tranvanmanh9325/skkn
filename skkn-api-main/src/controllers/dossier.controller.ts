@@ -7,18 +7,27 @@ import { AuditLog } from '../models/AuditLog.model';
 // GET /dossiers — Danh sách hồ sơ (có phân trang)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const listDossiers = async (
+export const getDossiers = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
+    const limit = Math.min(50, parseInt(req.query.limit as string) || 5);
     const skip = (page - 1) * limit;
+    const search = req.query.search as string;
 
     // req.queryFilter đã được scopeQuery inject — KHÔNG tự build filter từ user input
     const baseFilter: FilterQuery<IDossierDocument> = { ...req.queryFilter };
+
+    // Tìm kiếm bằng regex không phân biệt hoa thường
+    if (search) {
+      baseFilter.$or = [
+        { dossierId: { $regex: search, $options: 'i' } },
+        { parties: { $regex: search, $options: 'i' } },
+      ];
+    }
 
     // Cho phép filter thêm theo status (an toàn vì không ảnh hưởng RLS)
     if (req.query.status) {
@@ -38,7 +47,7 @@ export const listDossiers = async (
     res.json({
       success: true,
       data: dossiers,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      meta: { totalRecords: total, totalPages: Math.ceil(total / limit), currentPage: page, limit },
     });
   } catch (error) {
     next(error);
@@ -59,7 +68,7 @@ export const getDossierById = async (
     // Kết hợp req.queryFilter để đảm bảo user có quyền xem hồ sơ này
     // Ví dụ officer với scope 'OWN' sẽ không tìm thấy hồ sơ của người khác dù biết ID
     const dossier = await Dossier.findOne({
-      _id: req.params.id,
+      dossierId: req.params.id, // ID public (vd: THA-2026-0009)
       ...req.queryFilter, // RLS filter kết hợp với ID lookup
     })
       .populate('assignedOfficer', 'name employeeId')
@@ -70,6 +79,18 @@ export const getDossierById = async (
       res.status(404).json({ success: false, message: 'Dossier not found.' });
       return;
     }
+
+    // Ghi AuditLog READ bất đồng bộ (tránh block request)
+    AuditLog.create({
+      action: 'READ',
+      resource: 'DOSSIER',
+      resourceId: dossier._id,
+      performedBy: req.user._id,
+      ipAddress: req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+    }).catch((err: unknown) =>
+      console.error('[AuditLog] Failed to record READ audit:', err)
+    );
 
     res.json({ success: true, data: dossier });
   } catch (error) {
@@ -90,6 +111,8 @@ export const createDossier = async (
   try {
     const dossier = new Dossier({
       ...req.body,
+      createdBy: req.user._id,
+      assignedOfficer: req.user._id, // mặc định gán cho người tạo
       // Gán cứng unit từ user đang đăng nhập, không tin vào body
       unit: req.user.unit,
     });
@@ -186,6 +209,51 @@ export const getDossierAuditLog = async (
       .lean();
 
     res.json({ success: true, data: logs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /dossiers/stats — Thống kê thông tin trên bảng điều khiển
+// Sử dụng Aggregation Pipeline để đếm nhanh số liệu
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getDashboardStats = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const baseFilter = { ...req.queryFilter };
+
+    const stats = await Dossier.aggregate([
+      { $match: baseFilter },
+      {
+        $group: {
+          _id: null,
+          totalDossiers: { $sum: 1 },
+          pendingCount: {
+            $sum: { $cond: [{ $eq: ['$status', 'PENDING'] }, 1, 0] }
+          },
+          executingCount: {
+            $sum: { $cond: [{ $eq: ['$status', 'EXECUTING'] }, 1, 0] }
+          },
+          completedCount: {
+            $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, 1, 0] }
+          }
+        }
+      }
+    ]);
+
+    const result = stats[0] || {
+      totalDossiers: 0,
+      pendingCount: 0,
+      executingCount: 0,
+      completedCount: 0,
+    };
+
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
