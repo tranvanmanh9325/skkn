@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/axios";
 
 interface Role {
@@ -18,6 +19,7 @@ interface User {
 }
 
 export default function UsersPage() {
+  const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +97,10 @@ export default function UsersPage() {
             <button className="text-[11px] font-bold tracking-[0.05em] uppercase text-[#2B5CE6] border border-[#2B5CE6] px-4 py-2 hover:bg-[#2B5CE6] hover:text-white transition-colors rounded-none whitespace-nowrap">
               Bộ Lọc
             </button>
-            <button className="text-[11px] font-bold tracking-[0.05em] uppercase text-white bg-[#2B5CE6] border border-[#2B5CE6] px-4 py-2 hover:bg-[#2049BA] hover:border-[#2049BA] transition-colors rounded-none whitespace-nowrap">
+            <button 
+              onClick={() => router.push('/users/new')}
+              className="text-[11px] font-bold tracking-[0.05em] uppercase text-white bg-[#2B5CE6] border border-[#2B5CE6] px-4 py-2 hover:bg-[#2049BA] hover:border-[#2049BA] transition-colors rounded-none whitespace-nowrap"
+            >
               + Tạo tài khoản
             </button>
           </div>

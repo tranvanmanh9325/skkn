@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiClient } from "@/lib/axios";
+import { useAuthStore } from "@/store/useAuthStore";
 
 interface DossierDetail {
   _id: string;
@@ -22,6 +23,7 @@ export default function DossierDetailPage() {
   const params = useParams();
   const router = useRouter();
   const dossierId = params.id as string;
+  const { user } = useAuthStore();
 
   const [dossier, setDossier] = useState<DossierDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -154,12 +156,14 @@ export default function DossierDetailPage() {
           >
             Sửa Hồ Sơ
           </button>
-          <button 
-            onClick={handleDelete}
-            className="px-5 py-2.5 text-[12px] font-bold tracking-[0.05em] uppercase text-red-600 border border-red-600 hover:bg-red-600 hover:text-white transition-colors rounded-none"
-          >
-            Xóa
-          </button>
+          {user?.role === 'ADMIN' && (
+            <button 
+              onClick={handleDelete}
+              className="px-5 py-2.5 text-[12px] font-bold tracking-[0.05em] uppercase text-red-600 border border-red-600 hover:bg-red-600 hover:text-white transition-colors rounded-none"
+            >
+              Xóa
+            </button>
+          )}
         </div>
       </div>
 
