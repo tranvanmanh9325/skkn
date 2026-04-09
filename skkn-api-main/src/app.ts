@@ -3,6 +3,7 @@ import cors from 'cors';
 import { env } from './config/env';
 import authRouter from './routes/auth.routes';
 import dossierRouter from './routes/dossier.routes';
+import userRouter from './routes/user.routes';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App Factory
@@ -39,6 +40,7 @@ export function createApp(): Application {
   // ── API Routes ────────────────────────────────────────────────────────────
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/dossiers', dossierRouter);
+  app.use('/api/v1/users', userRouter);
 
   // ── 404 Handler ───────────────────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {

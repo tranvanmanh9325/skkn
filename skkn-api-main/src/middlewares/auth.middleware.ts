@@ -113,6 +113,31 @@ export const authorize = (resource: Resource, action: Action) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 2.1 authorizeRoles
+//
+// Yêu cầu bắt buộc Role name nhất định nào đó để truy cập route.
+// Dành cho trường hợp cứng (vd: 'ADMIN').
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const authorizeRoles = (...allowedRoles: string[]) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const roles = req.user.roles as IRoleDocument[];
+    
+    const hasRole = roles.some((role) => allowedRoles.includes(role.name));
+
+    if (!hasRole) {
+      res.status(403).json({
+        success: false,
+        message: `Tương tác bị từ chối: Chức năng yêu cầu quyền [${allowedRoles.join(', ')}].`,
+      });
+      return;
+    }
+
+    next();
+  };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 3. scopeQuery — Row-Level Security
 //
 // Đây là middleware quan trọng nhất về mặt bảo mật dữ liệu.
