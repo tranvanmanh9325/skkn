@@ -1,0 +1,77 @@
+version: "3.9"
+
+services:
+  frontend:
+    build:
+      context: ./skkn-web
+      dockerfile: Dockerfile
+    container_name: skkn-web
+    ports:
+      - "5002:5002"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://backend:3000
+    depends_on:
+      - backend
+    networks:
+      - skkn-network
+
+  backend:
+    build:
+      context: ./skkn-api-main
+      dockerfile: Dockerfile
+    container_name: skkn-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGO_URI=mongodb://mongodb:27017/skkn
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=change_me_in_production_use_a_strong_secret
+      - JWT_EXPIRES_IN=7d
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - skkn-network
+
+  mongodb:
+    image: mongo:7
+    container_name: skkn-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - skkn-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: skkn-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - skkn-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  skkn-network:
+    driver: bridge
