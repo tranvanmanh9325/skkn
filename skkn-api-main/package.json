@@ -4,10 +4,11 @@
   "description": "SKKN Backend API",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "npm run seed:admin && ts-node-dev --respawn --transpile-only -r dotenv/config src/server.ts",
+    "dev": "npm run seed:admin && npm run seed:master && ts-node-dev --respawn --transpile-only -r dotenv/config src/server.ts",
     "build": "tsc",
-    "start": "node -r dotenv/config dist/scripts/seedAdmin.js && node dist/server.js",
+    "start": "node -r dotenv/config dist/scripts/seedAdmin.js && node -r dotenv/config dist/scripts/seedMasterData.js && node dist/server.js",
     "seed:admin": "ts-node -r dotenv/config src/scripts/seedAdmin.ts",
+    "seed:master": "ts-node -r dotenv/config src/scripts/seedMasterData.ts",
     "lint": "eslint 'src/**/*.ts'",
     "type-check": "tsc --noEmit"
   },

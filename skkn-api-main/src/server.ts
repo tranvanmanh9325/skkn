@@ -5,6 +5,9 @@ import mongoose from "mongoose";
 import { WebSocketServer } from "ws";
 import Bull from "bull";
 import authRoutes from "./routes/authRoutes";
+import recordRoutes from "./routes/recordRoutes";
+import recordTypeRoutes from "./routes/recordTypeRoutes";
+import unitTypeRoutes from "./routes/unitTypeRoutes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,6 +23,9 @@ app.use(express.json());
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
+app.use("/api/records", recordRoutes);
+app.use("/api/record-types", recordTypeRoutes);
+app.use("/api/unit-types", unitTypeRoutes);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
