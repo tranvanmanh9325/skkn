@@ -1,7 +1,7 @@
 import { RequestHandler } from "express";
 import mongoose, { FilterQuery } from "mongoose";
 // Aliased to RecordModel to avoid collision with the built-in Record<K,V> utility type
-import { Record as RecordModel, IRecord } from "../models/Core";
+import { Record as RecordModel, IRecord, IAttachment } from "../models/Core";
 
 // ── Query builder ─────────────────────────────────────────────────────────────
 
@@ -38,6 +38,55 @@ function buildQuery(params: {
   return query;
 }
 
+/**
+ * Fields that hold ObjectId references. FormData serialises unselected
+ * dropdowns as the literal strings "", "null", or "undefined" — all of which
+ * cause a Mongoose CastError. We delete such fields before touching Mongoose.
+ */
+const OBJECT_ID_FIELDS = [
+  "loaiHoSo",
+  "noiTHA",
+  "loaiNoiTHA",
+  "doiTHA",
+  "nguoiCHA",
+  "currentAssignee",
+  "currentOrgUnit",
+] as const;
+
+const SENTINEL_VALUES = new Set(["", "null", "undefined"]);
+
+/**
+ * Removes ObjectId fields whose value is a FormData sentinel so Mongoose never
+ * attempts to cast them. Mutates and returns the same object for convenience.
+ */
+function sanitizeBody(body: Record<string, unknown>): Record<string, unknown> {
+  for (const field of OBJECT_ID_FIELDS) {
+    if (SENTINEL_VALUES.has(body[field] as string)) {
+      delete body[field];
+    }
+  }
+  return body;
+}
+
+/**
+ * Parses the `attachments` field from the request body.
+ * The frontend sends it as a JSON string (array of AttachmentItem objects from
+ * Cloudinary). Falls back to an empty array on any parse failure.
+ */
+function parseAttachments(raw: unknown): IAttachment[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as IAttachment[];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as IAttachment[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 // ── Controllers ───────────────────────────────────────────────────────────────
 
 /**
@@ -55,7 +104,12 @@ export const getRecords: RequestHandler = async (req, res) => {
     };
 
     const filter = buildQuery({ search, noiTHA, doiTHA, loaiHoSo });
-    const records = await RecordModel.find(filter).sort({ createdAt: -1 }).lean();
+    const records = await RecordModel.find(filter)
+      .populate("nguoiCHA")
+      .populate("noiTHA", "name")
+      .populate("doiTHA", "name")
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.status(200).json({ data: records });
   } catch (err) {
@@ -65,25 +119,62 @@ export const getRecords: RequestHandler = async (req, res) => {
 };
 
 /**
+ * GET /api/records/:id
+ * Trả về chi tiết 1 record kèm đầy đủ attachments và populate nguoiCHA.
+ */
+export const getRecordById: RequestHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).json({ message: "ID không hợp lệ." });
+      return;
+    }
+
+    const record = await RecordModel.findById(id)
+      .populate("nguoiCHA")
+      .populate("noiTHA", "name")
+      .populate("doiTHA", "name")
+      .lean();
+
+    if (!record) {
+      res.status(404).json({ message: "Hồ sơ không tồn tại." });
+      return;
+    }
+
+    res.status(200).json({ data: record });
+  } catch (err) {
+    console.error("[RecordController] getRecordById error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/**
  * POST /api/records
  * Only the fields defined in IRecord (Core.ts) are written.
  * Tab 2 subject data must be persisted separately via /api/subjects.
  * Returns 409 on duplicate soHoSo.
+ *
+ * The `attachments` field is expected as a JSON string produced by the
+ * frontend after uploading files to Cloudinary via POST /api/upload.
  */
 export const createRecord: RequestHandler = async (req, res) => {
   try {
-    const {
-      soHoSo,
-      loaiHoSo,
-      noiTHA,
-      loaiNoiTHA,
-      doiTHA,
-      nguoiCHA,
-      ghiChu,
-      currentAssignee,
-      currentOrgUnit,
-      attachments,
-    } = req.body;
+    const body = sanitizeBody({ ...req.body });
+
+    // Dùng unknown cast để attachments có thể là array (JSON) hoặc string (multipart cũ)
+    const b = body as Record<string, unknown>;
+    const soHoSo        = b.soHoSo        as string | undefined;
+    const loaiHoSo      = b.loaiHoSo      as string | undefined;
+    const noiTHA        = b.noiTHA        as string | undefined;
+    const loaiNoiTHA    = b.loaiNoiTHA    as string | undefined;
+    const doiTHA        = b.doiTHA        as string | undefined;
+    const nguoiCHA      = b.nguoiCHA      as string | undefined;
+    const ghiChu        = b.ghiChu        as string | undefined;
+    const currentAssignee = b.currentAssignee as string | undefined;
+    const currentOrgUnit  = b.currentOrgUnit  as string | undefined;
+    const rawAttachments  = b.attachments;
+
+    const attachments = parseAttachments(rawAttachments);
 
     const record = await RecordModel.create({
       soHoSo,
@@ -91,12 +182,11 @@ export const createRecord: RequestHandler = async (req, res) => {
       noiTHA,
       loaiNoiTHA,
       doiTHA,
-      // Optional refs — omit if falsy to avoid casting an empty string to ObjectId
-      ...(nguoiCHA && { nguoiCHA }),
-      ...(ghiChu && { ghiChu }),
+      ...(nguoiCHA      && { nguoiCHA }),
+      ...(ghiChu        && { ghiChu }),
       ...(currentAssignee && { currentAssignee }),
-      ...(currentOrgUnit && { currentOrgUnit }),
-      attachments: Array.isArray(attachments) ? attachments : [],
+      ...(currentOrgUnit  && { currentOrgUnit }),
+      attachments,
     });
 
     res.status(201).json({ data: record });
@@ -112,30 +202,39 @@ export const createRecord: RequestHandler = async (req, res) => {
 
 /**
  * PUT /api/records/:id
- * Partially updates an existing record.
+ * Accepts `attachments` as a JSON string representing the FULL desired array
+ * (existing + newly uploaded). This replaces the previous append-only behaviour,
+ * which means the client can also delete attachments by omitting them.
  */
 export const updateRecord: RequestHandler = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Whitelist updatable fields to prevent mass-assignment of schema internals
-    const {
-      soHoSo,
-      loaiHoSo,
-      noiTHA,
-      loaiNoiTHA,
-      doiTHA,
-      nguoiCHA,
-      ghiChu,
-      currentAssignee,
-      currentOrgUnit,
-      attachments,
-    } = req.body;
+    // Strip ObjectId-ref fields that FormData serialised as sentinel strings
+    const body = sanitizeBody({ ...req.body });
+
+    // Cast to unknown first — attachments có thể là array (JSON) hoặc string (multipart)
+    const b = body as Record<string, unknown>;
+    const soHoSo          = b.soHoSo          as string | undefined;
+    const loaiHoSo        = b.loaiHoSo        as string | undefined;
+    const noiTHA          = b.noiTHA          as string | undefined;
+    const loaiNoiTHA      = b.loaiNoiTHA      as string | undefined;
+    const doiTHA          = b.doiTHA          as string | undefined;
+    const nguoiCHA        = b.nguoiCHA        as string | undefined;
+    const ghiChu          = b.ghiChu          as string | undefined;
+    const currentAssignee = b.currentAssignee as string | undefined;
+    const currentOrgUnit  = b.currentOrgUnit  as string | undefined;
+    const rawAttachments  = b.attachments;
+
+    const attachments = parseAttachments(rawAttachments);
+    console.log("[DEBUG updateRecord] rawAttachments:", rawAttachments);
+    console.log("[DEBUG updateRecord] parsed attachments:", attachments);
 
     const updated = await RecordModel.findByIdAndUpdate(
       id,
       {
         $set: {
+          // Only include fields that survived sanitization (i.e. have real values)
           ...(soHoSo !== undefined && { soHoSo }),
           ...(loaiHoSo !== undefined && { loaiHoSo }),
           ...(noiTHA !== undefined && { noiTHA }),
@@ -145,7 +244,9 @@ export const updateRecord: RequestHandler = async (req, res) => {
           ...(ghiChu !== undefined && { ghiChu }),
           ...(currentAssignee !== undefined && { currentAssignee }),
           ...(currentOrgUnit !== undefined && { currentOrgUnit }),
-          ...(attachments !== undefined && { attachments }),
+          // Always replace the full array — rawAttachments being undefined means
+          // the client didn't touch attachments at all, so skip the $set for it
+          ...(rawAttachments !== undefined && { attachments }),
         },
       },
       { new: true, runValidators: true }

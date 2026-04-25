@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import axios from "axios";
+import toast from "react-hot-toast";
 import { X, Loader2 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -74,20 +75,21 @@ export default function UnitTypeModal({
       } else {
         await axios.post(`${API_URL}/api/unit-types`, values);
       }
+      toast.success("Lưu thông tin thành công!");
       onSuccess();
       onClose();
     } catch (err: unknown) {
       const msg =
         axios.isAxiosError(err)
           ? (err.response?.data as { message?: string })?.message ??
-            "Đã xảy ra lỗi. Vui lòng thử lại."
-          : "Đã xảy ra lỗi. Vui lòng thử lại.";
+            "Có lỗi xảy ra, vui lòng thử lại!"
+          : "Có lỗi xảy ra, vui lòng thử lại!";
 
       // Surface duplicate-code errors on the code field specifically
       if (msg.includes("Mã loại nơi THA")) {
         setError("code", { message: msg });
       } else {
-        setError("root", { message: msg });
+        toast.error(msg);
       }
     }
   };
@@ -121,12 +123,6 @@ export default function UnitTypeModal({
           noValidate
           className="px-6 py-5 space-y-4"
         >
-          {/* Root-level server error banner */}
-          {errors.root && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-              {errors.root.message}
-            </p>
-          )}
 
           {/* Tên loại nơi THA */}
           <div className="space-y-1">

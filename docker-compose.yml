@@ -23,13 +23,18 @@ services:
     container_name: skkn-api
     ports:
       - "3000:3000"
+    # Inject all variables from the .env file — this is the primary mechanism
+    # for secrets like CLOUDINARY_API_KEY that must not be hardcoded here.
+    env_file:
+      - ./skkn-api-main/.env
     environment:
+      # These override the .env values where the Docker network topology
+      # requires different hostnames than the local-dev defaults.
       - NODE_ENV=production
       - PORT=3000
       - MONGO_URI=mongodb://mongodb:27017/skkn
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=change_me_in_production_use_a_strong_secret
-      - JWT_EXPIRES_IN=7d
+      - CORS_ORIGIN=http://frontend:5002
     depends_on:
       mongodb:
         condition: service_healthy

@@ -15,7 +15,16 @@ import {
   ChevronRight,
   ChevronsRight,
 } from "lucide-react";
-import CreateRecordModal, { type RecordRow } from "@/components/CreateRecordModal";
+import axios from "axios";
+import toast from "react-hot-toast";
+import CreateRecordModal, {
+  type RecordRow,
+  type MasterDataItem,
+  type SubjectItem,
+  type AttachmentItem,
+} from "@/components/CreateRecordModal";
+import TransferRecordModal from "@/components/TransferRecordModal";
+import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 
 
 // ---------------------------------------------------------------------------
@@ -24,13 +33,14 @@ import CreateRecordModal, { type RecordRow } from "@/components/CreateRecordModa
 interface HoSo {
   _id: string;
   soHoSo: string;
-  nguoiCHA?: string;
-  noiTHA: string;
+  nguoiCHA?: { _id: string; hoTen: string; ngaySinh?: string; gioiTinh?: string; cccd?: string; queQuan?: string; thuongTru?: string };
+  noiTHA: { _id: string; name: string };
   loaiNoiTHA: string;
-  doiTHA: string;
+  doiTHA: { _id: string; name: string };
   loaiHoSo: string;
   ghiChu?: string;
   ngayThiHanh?: string;
+  attachments?: AttachmentItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +100,15 @@ function FilterSelect({
 }
 
 /** Action icon buttons in each table row */
-function ActionCell({ onEdit }: { onEdit: () => void }) {
+function ActionCell({
+  onEdit,
+  onTransfer,
+  onDelete,
+}: {
+  onEdit: () => void;
+  onTransfer: () => void;
+  onDelete: () => void;
+}) {
   return (
     <div className="flex items-center gap-3">
       <button
@@ -102,12 +120,14 @@ function ActionCell({ onEdit }: { onEdit: () => void }) {
       </button>
       <button
         aria-label="Chuyển hồ sơ"
+        onClick={onTransfer}
         className="hover:opacity-70 transition-opacity"
       >
         <ArrowRightLeft size={16} className="text-blue-500" />
       </button>
       <button
         aria-label="Xóa hồ sơ"
+        onClick={onDelete}
         className="hover:opacity-70 transition-opacity"
       >
         <Trash2 size={16} className="text-[#a61c1c]" />
@@ -149,6 +169,24 @@ export default function QuanLyHoSoPage() {
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<RecordRow | null>(null);
+  // Full record detail fetched on edit — provides attachments and populated nguoiCHA
+  const [initialData, setInitialData] = useState<{
+    nguoiCHA?: SubjectItem | null;
+    attachments?: AttachmentItem[];
+  } | null>(null);
+
+  // State for the Transfer Record modal
+  const [selectedRecordForTransfer, setSelectedRecordForTransfer] = useState<HoSo | null>(null);
+
+  // ID của hồ sơ đang chờ xác nhận xóa; null = modal đóng
+  const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
+
+  // ── Master data for relational dropdowns ──────────────────────────────────
+  const [unitOptions, setUnitOptions] = useState<MasterDataItem[]>([]);
+  const [unitTypeOptions, setUnitTypeOptions] = useState<MasterDataItem[]>([]);
+  const [teamOptions, setTeamOptions] = useState<MasterDataItem[]>([]);
+  const [recordTypeOptions, setRecordTypeOptions] = useState<MasterDataItem[]>([]);
+  const [subjectOptions, setSubjectOptions] = useState<SubjectItem[]>([]);
 
   // ── Selection state ───────────────────────────────────────────────────────
   const [allChecked, setAllChecked] = useState(false);
@@ -200,9 +238,38 @@ export default function QuanLyHoSoPage() {
     []
   );
 
-  // ── Initial load (no filters active) ─────────────────────────────────────
+  // ── Initial load: records + master data for dropdowns ───────────────────
   useEffect(() => {
     fetchRecords({ search: "", nguoiCHA: "", noiTHA: "", doiTHA: "" });
+
+    // Fetch all master data lists in parallel — these rarely change
+    // so a single fetch on mount is sufficient.
+    const fetchMasterData = async () => {
+      try {
+        const [units, unitTypes, teams, recordTypes, subjects] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/units`).then<{ data?: MasterDataItem[] } | MasterDataItem[]>((r) => r.json()),
+          fetch(`${API_BASE_URL}/api/unit-types`).then<MasterDataItem[]>((r) => r.json()),
+          fetch(`${API_BASE_URL}/api/teams`).then<{ data?: MasterDataItem[] } | MasterDataItem[]>((r) => r.json()),
+          fetch(`${API_BASE_URL}/api/record-types`).then<MasterDataItem[]>((r) => r.json()),
+          fetch(`${API_BASE_URL}/api/subjects`).then<SubjectItem[]>((r) => r.json()),
+        ]);
+
+        // Support both `{ data: [] }` envelope and bare array responses
+        const toArray = (res: { data?: MasterDataItem[] } | MasterDataItem[]): MasterDataItem[] =>
+          Array.isArray(res) ? res : (res.data ?? []);
+
+        setUnitOptions(toArray(units));
+        setUnitTypeOptions(toArray(unitTypes));
+        setTeamOptions(toArray(teams));
+        setRecordTypeOptions(toArray(recordTypes));
+        // /api/subjects returns a bare array of { _id, hoTen }
+        setSubjectOptions(Array.isArray(subjects) ? subjects : []);
+      } catch (err) {
+        console.error("[QuanLyHoSo] fetchMasterData error:", err);
+      }
+    };
+
+    fetchMasterData();
   }, [fetchRecords]);
 
   // ── Debounced search: fires 500ms after the user stops typing ─────────────
@@ -244,6 +311,21 @@ export default function QuanLyHoSoPage() {
     });
   };
 
+  /** Xóa hồ sơ: gọi DELETE API, cập nhật bảng, đóng modal xác nhận */
+  const handleDeleteRecord = async () => {
+    if (!recordToDelete) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/api/records/${recordToDelete}`);
+      toast.success("Đã xóa hồ sơ!");
+      handleCreateSuccess();
+      setRecordToDelete(null);
+    } catch {
+      toast.error("Xóa hồ sơ thất bại. Vui lòng thử lại!");
+      // Re-throw để ConfirmDeleteModal reset loading state đúng
+      throw new Error("delete failed");
+    }
+  };
+
 
   // ── Derive unique option lists from the current full dataset ──────────────
   // We fetch the full list on initial mount, so these reflect all values in DB.
@@ -251,15 +333,15 @@ export default function QuanLyHoSoPage() {
   // "allRecords" list — here we use the simplest approach: derive from whatever
   // the last unfiltered fetch returned (initial mount gives us all records).
   const uniqueNguoiCHA = useMemo(
-    () => Array.from(new Set(records.map((r) => r.nguoiCHA).filter(Boolean) as string[])).sort(),
+    () => Array.from(new Set(records.map((r) => r.nguoiCHA?.hoTen).filter(Boolean) as string[])).sort(),
     [records]
   );
   const uniqueNoiTHA = useMemo(
-    () => Array.from(new Set(records.map((r) => r.noiTHA).filter(Boolean))).sort(),
+    () => Array.from(new Set(records.map((r) => r.noiTHA?.name).filter(Boolean) as string[])).sort(),
     [records]
   );
   const uniqueDoiTHA = useMemo(
-    () => Array.from(new Set(records.map((r) => r.doiTHA).filter(Boolean))).sort(),
+    () => Array.from(new Set(records.map((r) => r.doiTHA?.name).filter(Boolean) as string[])).sort(),
     [records]
   );
 
@@ -447,13 +529,13 @@ export default function QuanLyHoSoPage() {
                     {row.soHoSo}
                   </td>
                   <td className="py-4 pr-6 text-sm text-gray-800 whitespace-nowrap">
-                    {row.nguoiCHA}
+                    {row.nguoiCHA?.hoTen || '-'}
                   </td>
                   <td className="py-4 pr-6 text-sm text-gray-800 max-w-[180px]">
-                    {row.noiTHA}
+                    {row.noiTHA?.name || '-'}
                   </td>
                   <td className="py-4 pr-6 text-sm text-gray-800 max-w-[180px]">
-                    {row.doiTHA}
+                    {row.doiTHA?.name || '-'}
                   </td>
                   <td className="py-4 pr-6 text-sm text-gray-400">
                     {row.ghiChu || "—"}
@@ -464,9 +546,28 @@ export default function QuanLyHoSoPage() {
                   <td className="py-4">
                     <ActionCell
                       onEdit={() => {
-                        setSelectedRecord(row as RecordRow);
+                        // Debug: kiểm tra attachments trong row data
+                        console.log("[DEBUG] row.attachments:", row.attachments);
+                        const data = {
+                          nguoiCHA: row.nguoiCHA ?? null,
+                          attachments: row.attachments ?? [],
+                        };
+                        console.log("[DEBUG] setting initialData:", data);
+                        setInitialData(data);
+                        setSelectedRecord({
+                          _id: row._id,
+                          soHoSo: row.soHoSo,
+                          noiTHA: row.noiTHA?._id ?? "",
+                          loaiNoiTHA: row.loaiNoiTHA,
+                          doiTHA: row.doiTHA?._id ?? "",
+                          loaiHoSo: row.loaiHoSo,
+                          nguoiCHA: row.nguoiCHA?._id ?? "",
+                          ghiChu: row.ghiChu,
+                        });
                         setIsCreateModalOpen(true);
                       }}
+                      onTransfer={() => setSelectedRecordForTransfer(row)}
+                      onDelete={() => setRecordToDelete(row._id)}
                     />
                   </td>
                 </tr>
@@ -541,11 +642,40 @@ export default function QuanLyHoSoPage() {
 
       {isCreateModalOpen && (
         <CreateRecordModal
-          onClose={() => setIsCreateModalOpen(false)}
+          onClose={() => {
+            setIsCreateModalOpen(false);
+            setInitialData(null);
+          }}
           onSuccess={handleCreateSuccess}
           recordToEdit={selectedRecord}
+          initialData={initialData}
+          unitOptions={unitOptions}
+          unitTypeOptions={unitTypeOptions}
+          teamOptions={teamOptions}
+          recordTypeOptions={recordTypeOptions}
+          subjectOptions={subjectOptions}
         />
       )}
+
+      {selectedRecordForTransfer && (
+        <TransferRecordModal
+          record={selectedRecordForTransfer}
+          unitOptions={unitOptions}
+          onClose={() => setSelectedRecordForTransfer(null)}
+          onSuccess={() => {
+            setSelectedRecordForTransfer(null);
+            handleCreateSuccess();
+          }}
+        />
+      )}
+
+      <ConfirmDeleteModal
+        isOpen={!!recordToDelete}
+        onClose={() => setRecordToDelete(null)}
+        onConfirm={handleDeleteRecord}
+        title="Xác nhận xóa hồ sơ"
+        message="Bạn có chắc chắn muốn xóa hồ sơ này? Hành động này không thể hoàn tác."
+      />
 
 
     </>

@@ -1,15 +1,26 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { useState } from "react";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  /** Hàm async do caller cung cấp — phải tự throw khi lỗi để loading state reset đúng */
   onConfirm: () => Promise<void>;
+  /** Tiêu đề modal, mặc định: "Bạn có chắc chắn?" */
+  title?: string;
+  /** Nội dung mô tả, mặc định: "Hành động này không thể hoàn tác." */
+  message?: string;
 }
 
-export default function ConfirmDeleteModal({ isOpen, onClose, onConfirm }: Props) {
+export default function ConfirmDeleteModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  title = "Bạn có chắc chắn?",
+  message = "Hành động này không thể hoàn tác.",
+}: Props) {
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
@@ -19,6 +30,8 @@ export default function ConfirmDeleteModal({ isOpen, onClose, onConfirm }: Props
     try {
       await onConfirm();
     } finally {
+      // Reset loading dù thành công hay lỗi;
+      // toast và state cleanup do caller tự xử lý
       setLoading(false);
     }
   };
@@ -28,12 +41,25 @@ export default function ConfirmDeleteModal({ isOpen, onClose, onConfirm }: Props
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 mx-4">
-        <h2 className="text-lg font-bold text-gray-900">Bạn có chắc chắn?</h2>
-        <p className="text-sm text-gray-600 mt-2">
-          Hành động này không thể hoàn tác. Bản ghi sẽ bị xóa vĩnh viễn.
-        </p>
+      <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+        {/* Title row: title bên trái, nút X bên phải */}
+        <div className="flex justify-between items-start">
+          <p className="font-semibold text-lg text-gray-900">{title}</p>
+          <button
+            type="button"
+            aria-label="Đóng"
+            onClick={onClose}
+            disabled={loading}
+            className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50 -mt-0.5 ml-4 shrink-0"
+          >
+            <X size={18} />
+          </button>
+        </div>
 
+        {/* Message */}
+        <p className="text-sm text-gray-500 mt-2">{message}</p>
+
+        {/* Footer */}
         <div className="flex justify-end gap-2 mt-6">
           <button
             type="button"

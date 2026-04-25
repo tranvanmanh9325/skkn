@@ -1,5 +1,6 @@
 import express from "express";
 import http from "http";
+import path from "path";
 import cors from "cors";
 import mongoose from "mongoose";
 import { WebSocketServer } from "ws";
@@ -8,24 +9,52 @@ import authRoutes from "./routes/authRoutes";
 import recordRoutes from "./routes/recordRoutes";
 import recordTypeRoutes from "./routes/recordTypeRoutes";
 import unitTypeRoutes from "./routes/unitTypeRoutes";
+import unitRoutes from "./routes/unitRoutes";
+import teamRoutes from "./routes/teamRoutes";
+import subjectRoutes from "./routes/subjectRoutes";
+import uploadRoutes from "./routes/uploadRoutes";
+import reportRoutes from "./routes/reportRoutes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Middleware ────────────────────────────────────────────────────────────────
+// Allow both the browser-facing origin (localhost) and the Docker-internal
+// hostname. The browser always uses localhost; container-to-container calls
+// use the service name. FRONTEND_URL in .env can add extra origins at runtime.
+const ALLOWED_ORIGINS = [
+  "http://localhost:5002",
+  "http://frontend:5002",
+  process.env.FRONTEND_URL,
+].filter((o): o is string => Boolean(o));
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: (requestOrigin, callback) => {
+      // Allow server-to-server calls (no Origin header) and listed origins
+      if (!requestOrigin || ALLOWED_ORIGINS.includes(requestOrigin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin '${requestOrigin}' not allowed`));
+      }
+    },
     credentials: true,
   })
 );
 app.use(express.json());
+// Serve uploaded attachments as static assets; path is relative to CWD (project root)
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/records", recordRoutes);
 app.use("/api/record-types", recordTypeRoutes);
 app.use("/api/unit-types", unitTypeRoutes);
+app.use("/api/units", unitRoutes);
+app.use("/api/teams", teamRoutes);
+app.use("/api/subjects", subjectRoutes);
+app.use("/api/upload", uploadRoutes);
+app.use("/api/reports", reportRoutes);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });

@@ -7,8 +7,7 @@ export type GioiTinh = "Nam" | "Nữ" | "Khác";
 export interface IAttachment {
   fileName: string;
   fileUrl: string;
-  size: number;
-  uploadedAt: Date;
+  fileSize: number;
 }
 
 export interface ISubject {
@@ -16,7 +15,10 @@ export interface ISubject {
   ngaySinh: Date;
   cccd: string;
   gioiTinh?: GioiTinh;
-  // Hometown (quê quán)
+  // Plain-string display values for the UI (Tab 2 auto-fill)
+  queQuan?: string;
+  thuongTru?: string;
+  // Hometown (quê quán) — relational refs for geography lookups
   queQuan_Province: Types.ObjectId;
   queQuan_District?: Types.ObjectId;
   queQuan_Ward?: Types.ObjectId;
@@ -65,10 +67,9 @@ const attachmentSchema = new Schema<IAttachment>(
   {
     fileName: { type: String, required: true, trim: true },
     fileUrl: { type: String, required: true, trim: true },
-    size: { type: Number, required: true, min: [0, "File size cannot be negative"] },
-    uploadedAt: { type: Date, default: Date.now },
+    fileSize: { type: Number, required: true, min: [0, "File size cannot be negative"] },
   },
-  { _id: false } // Sub-documents don't need their own _id
+  { _id: false }
 );
 
 // ── Subject ───────────────────────────────────────────────────────────────────
@@ -95,6 +96,10 @@ const subjectSchema = new Schema<ISubjectDocument>(
         message: "Giới tính không hợp lệ: {VALUE}",
       },
     },
+    // Plain-string display fields — kept alongside the ObjectId refs so the UI
+    // can render human-readable values without an extra populate chain.
+    queQuan: { type: String, trim: true },
+    thuongTru: { type: String, trim: true },
 
     // ── Hometown ───────────────────────────────────────────────────────────
     queQuan_Province: {
